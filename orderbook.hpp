@@ -11,6 +11,7 @@ class OrderBook {
 public:
     OrderBook();                        // constructor
     void addOrder(Order order);  // function declaration
+    bool cancelOrder(int orderID);
     void printBook() const;
     void printTrades() const;
 

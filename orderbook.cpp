@@ -81,6 +81,41 @@ void OrderBook::tryMatch(Order& order) {
   }
 }
 
+bool OrderBook::cancelOrder(int orderID) {
+  for (auto& priceLevel : bids) {
+    auto& orders = priceLevel.second;
+
+    for (auto it = orders.begin(); it != orders.end(); ++it) {
+      if (it->id == orderID) {
+        orders.erase(it);
+
+        if (orders.empty()) {
+          bids.erase(priceLevel.first);
+        }
+
+        return true;
+      }
+    }
+  }
+  for (auto& priceLevel : asks) {
+    auto& orders = priceLevel.second;
+
+    for (auto it = orders.begin(); it != orders.end(); ++it) {
+        if (it->id == orderID) {
+            orders.erase(it);
+
+            if (orders.empty()) {
+              asks.erase(priceLevel.first);
+            }
+
+            return true;
+        }
+    }
+  }
+
+  return false;
+}
+
 void OrderBook::printBook() const {
     std::cout << "\n========== ORDER BOOK ==========\n\n";
 
