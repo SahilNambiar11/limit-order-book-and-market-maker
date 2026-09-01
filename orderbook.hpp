@@ -12,6 +12,9 @@ public:
     OrderBook();                        // constructor
     void addOrder(Order order);  // function declaration
     bool cancelOrder(int orderID);
+    double bestBid() const;
+    double bestAsk() const;
+
     void printBook() const;
     void printTrades() const;
 

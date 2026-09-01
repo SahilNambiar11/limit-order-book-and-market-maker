@@ -116,6 +116,23 @@ bool OrderBook::cancelOrder(int orderID) {
   return false;
 }
 
+double OrderBook::bestBid() const {
+    if (bids.empty()) {
+        return 0.0;
+    }
+
+    return bids.begin()->first;
+}
+
+double OrderBook::bestAsk() const {
+    if (asks.empty()) {
+        return 0.0;
+    }
+
+    return asks.begin()->first;
+}
+
+
 void OrderBook::printBook() const {
     std::cout << "\n========== ORDER BOOK ==========\n\n";
 

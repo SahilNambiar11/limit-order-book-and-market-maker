@@ -31,6 +31,9 @@ int main() {
 
     std::cout << "Cancel nonexistent order 999\n";
     std::cout << book.cancelOrder(999) << "\n";
+    
+    std::cout << "Best bid: " << book.bestBid() << "\n";
+    std::cout << "Best ask: " << book.bestAsk() << "\n";
 
     return 0;
 
