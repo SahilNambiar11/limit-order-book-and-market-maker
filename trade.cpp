@@ -23,3 +23,4 @@ void printTrade(const Trade& trade) {
   std::cout << "Quantity: " << trade.quantity << std::endl;
   std::cout << "Timestamp: " << trade.timestamp << std::endl;
 }
+

@@ -1,14 +1,21 @@
 #include "order.hpp"
 #include "trade.hpp"
+#include "orderbook.hpp"
 #include <iostream>
 
+
 int main() {
-  Order order(1, Side::Buy, OrderType::Limit, 100.50, 50, 1);
-  
-  printOrder(order);
+    OrderBook book;
 
-  Trade trade(1, 25, 17, 101.0, 40, 2);
-  printTrade(trade);
+    book.addOrder(Order(1, Side::Sell, OrderType::Limit, 101.0, 20, 1));
+    book.addOrder(Order(2, Side::Sell, OrderType::Limit, 102.0, 30, 2));
+    book.addOrder(Order(3, Side::Sell, OrderType::Limit, 103.0, 40, 3));
 
-  return 0;
+    book.addOrder(Order(4, Side::Buy, OrderType::Market, 0.0, 60, 4));
+
+    book.printBook();
+    book.printTrades();
+
+    return 0;
 }
+

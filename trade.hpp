@@ -18,5 +18,4 @@ struct Trade {
 };
 
 void printTrade(const Trade& trade);
-
 #endif
