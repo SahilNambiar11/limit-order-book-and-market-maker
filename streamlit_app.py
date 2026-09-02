@@ -1,22 +1,45 @@
+import subprocess
+import sys
+from pathlib import Path
+
 import altair as alt
 import pandas as pd
 import streamlit as st
-
-try:
-    import orderbook_cpp
-except ImportError as error:
-    st.set_page_config(page_title="Order Book Simulator", page_icon="📈")
-    st.error("The C++ Python module has not been built for this interpreter.")
-    st.code("python -m pip install -r requirements.txt\nmake python-module PYTHON=python")
-    st.exception(error)
-    st.stop()
-
 
 st.set_page_config(
     page_title="Order Book Simulator",
     page_icon="📈",
     layout="wide",
 )
+
+try:
+    import orderbook_cpp
+except ImportError:
+    repository_directory = Path(__file__).resolve().parent
+    try:
+        subprocess.run(
+            ["make", "python-module", f"PYTHON={sys.executable}"],
+            cwd=repository_directory,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        st.error("Failed to build the C++ Python extension.")
+        build_output = "\n".join(
+            output.strip()
+            for output in (
+                getattr(error, "stdout", ""),
+                getattr(error, "stderr", ""),
+            )
+            if output and output.strip()
+        )
+        if build_output:
+            st.code(build_output)
+        st.exception(error)
+        st.stop()
+
+    import orderbook_cpp
 
 st.title("Limit Order Book Market Maker")
 st.caption(
