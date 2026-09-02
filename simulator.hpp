@@ -6,12 +6,18 @@
 
 class MarketMaker;
 
+struct SimulatorConfig {
+    unsigned int randomSeed = 1;
+    double marketOrderProbability = 0.20;
+    int maximumGeneratedOrderQuantity = 50;
+};
+
 class Simulator {
 public:
     Simulator(
         OrderBook& book,
         MarketMaker& marketMaker,
-        unsigned int seed
+        const SimulatorConfig& config = SimulatorConfig{}
     );
 
     void run(int steps);
@@ -24,6 +30,8 @@ private:
     long long currentTime;
     int nextOrderID;
     double referencePrice;
+    double marketOrderProbability;
+    int maximumGeneratedOrderQuantity;
 
     std::mt19937 rng;
 

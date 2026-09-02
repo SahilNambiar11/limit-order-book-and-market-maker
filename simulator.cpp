@@ -6,14 +6,16 @@
 Simulator::Simulator(
     OrderBook& book,
     MarketMaker& marketMaker,
-    unsigned int seed
+    const SimulatorConfig& config
 )
     : book(book),
       marketMaker(marketMaker),
       currentTime(0),
       nextOrderID(1),
       referencePrice(100.0),
-      rng(seed) {
+      marketOrderProbability(config.marketOrderProbability),
+      maximumGeneratedOrderQuantity(config.maximumGeneratedOrderQuantity),
+      rng(config.randomSeed) {
 }
 
 int Simulator::getNextOrderID() {
@@ -47,14 +49,16 @@ Order Simulator::generateOrder() {
     Side side =
         sideDist(rng) == 0 ? Side::Buy : Side::Sell;
 
-    std::uniform_int_distribution<int> typeDist(1, 100);
+    std::bernoulli_distribution marketOrderDist(marketOrderProbability);
 
-    OrderType type =
-        typeDist(rng) <= 80
-            ? OrderType::Limit
-            : OrderType::Market;
+    OrderType type = marketOrderDist(rng)
+        ? OrderType::Market
+        : OrderType::Limit;
 
-    std::uniform_int_distribution<int> quantityDist(1, 50);
+    std::uniform_int_distribution<int> quantityDist(
+        1,
+        maximumGeneratedOrderQuantity
+    );
     int quantity = quantityDist(rng);
 
     std::uniform_int_distribution<int> offsetDist(1, 5);

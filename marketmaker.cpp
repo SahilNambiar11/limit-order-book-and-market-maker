@@ -3,7 +3,10 @@
 #include <cmath>
 #include <vector>
 
-MarketMaker::MarketMaker(OrderBook& book)
+MarketMaker::MarketMaker(
+    OrderBook& book,
+    const MarketMakerConfig& config
+)
     : book(book),
       inventory(0),
       cash(0.0),
@@ -14,8 +17,8 @@ MarketMaker::MarketMaker(OrderBook& book)
       maxAbsInventory(0),
       bidOrderID(-1),
       askOrderID(-1),
-      quoteSize(10),
-      maxInventory(100),
+      quoteSize(config.quoteSize),
+      maxInventory(config.maximumInventory),
       lastProcessedTrade(0) {
 }
 

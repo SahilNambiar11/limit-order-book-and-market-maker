@@ -4,9 +4,17 @@
 #include "orderbook.hpp"
 #include <cstddef>
 
+struct MarketMakerConfig {
+    int quoteSize = 10;
+    int maximumInventory = 100;
+};
+
 class MarketMaker {
 public:
-    MarketMaker(OrderBook& book);
+    MarketMaker(
+        OrderBook& book,
+        const MarketMakerConfig& config = MarketMakerConfig{}
+    );
 
     void update(long long currentTime, int bidID, int askID);
 

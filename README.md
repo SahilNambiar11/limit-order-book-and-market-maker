@@ -1,179 +1,119 @@
-# Limit Order Book & Market Maker
+# C++ Limit Order Book and Market Maker
 
-A C++ limit order book and market simulation implementing price-time-priority matching, market and limit orders, partial fills, cancellations, and an inventory-aware market-making strategy.
-
-The project simulates order flow, executes trades through a central limit order book, and evaluates the market maker using mark-to-market P&L, fill rate, and inventory exposure across repeated trading sessions.
+This project implements a price-time-priority limit order book, order-flow
+simulator, and inventory-aware market maker in C++17. A pybind11 extension
+exposes the native multi-session experiment to a Streamlit dashboard; no
+matching or market-making logic is duplicated in Python.
 
 ## Features
 
-### Limit Order Book
-- Price-time-priority matching
-- Limit and market orders
-- Partial fills
+- Market and limit orders with partial fills
+- FIFO time priority within each price level
 - Order cancellation
-- FIFO ordering within each price level
-- Best bid and ask tracking
-- Trade execution and history
-- Multi-level order matching
+- Inventory-aware two-sided market-maker quotes
+- Mark-to-market P&L and fill-rate tracking
+- Configurable, reproducible multi-session experiments
+- Aggregate and per-session metrics exposed to Python
+- Streamlit metrics, P&L distribution, inventory chart, and result table
 
-### Market Maker
-- Continuously quotes both bid and ask orders
-- Cancels and replaces quotes as the market changes
-- Improves quotes inside wider spreads
-- Adjusts quotes based on inventory exposure
-- Stops increasing exposure beyond inventory thresholds
-- Tracks cash, inventory, filled volume, and quoted volume
-- Calculates mark-to-market P&L
+## Prerequisites
 
-### Market Simulator
-- Generates randomized buy and sell order flow
-- Supports both market and limit orders
-- Simulates changing reference prices
-- Uses deterministic random seeds for reproducible experiments
-- Supports repeated independent trading sessions
+- A C++17 compiler (`g++` or `clang++`)
+- GNU Make
+- Python 3 with development headers
 
-## Architecture
+Using a virtual environment keeps the Python build dependencies isolated:
 
-```text
-                    Market Simulator
-                          |
-                  Random Order Flow
-                          |
-                          v
-                 +-----------------+
-                 |    OrderBook    |
-                 |                 |
-                 | Matching Engine |
-                 +-----------------+
-                    ^           |
-                    |           | Trades
-                    |           v
-                 +-----------------+
-                 |   MarketMaker   |
-                 |                 |
-                 | Quotes Bid/Ask  |
-                 | Tracks Inventory|
-                 | Tracks P&L      |
-                 +-----------------+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-The `OrderBook` acts as the exchange and maintains resting bids and asks. The `Simulator` generates external market activity, while the `MarketMaker` reacts to the current book and submits its own quotes.
-
-## Order Book Design
-
-Bids and asks are stored as ordered maps of price levels:
-
-```cpp
-std::map<double, std::deque<Order>, std::greater<double>> bids;
-std::map<double, std::deque<Order>> asks;
-```
-
-This provides:
-
-- Highest bid first
-- Lowest ask first
-- FIFO execution within each price level
-
-Incoming orders repeatedly match against the best available opposing price until the order is completely filled, no liquidity remains, or its limit price can no longer cross the spread.
-
-## Market-Making Strategy
-
-The market maker observes the current best bid and ask and maintains quotes on both sides of the book.
-
-When the spread is sufficiently wide, it improves the existing prices by one tick:
-
-```text
-Best Bid:  $100.00
-Best Ask:  $100.05
-
-MM Bid:    $100.01
-MM Ask:    $100.04
-```
-
-The strategy also manages inventory risk.
-
-When inventory becomes too positive, quotes are shifted downward to discourage additional buying and encourage selling. When inventory becomes too negative, quotes are shifted upward to encourage buying and discourage additional selling.
-
-Position thresholds prevent the strategy from continually increasing exposure in one direction.
-
-## P&L
-
-Market-maker performance is measured using mark-to-market P&L:
-
-```text
-P&L = Cash + Inventory × Midprice
-```
-
-where:
-
-```text
-Midprice = (Best Bid + Best Ask) / 2
-```
-
-This accounts for both realized cash flows and the current value of remaining inventory.
-
-## Simulation Results
-
-The strategy was evaluated across 100 independent simulations with 10,000 market steps per session.
-
-```text
-Sessions:                       100
-Steps per session:              10,000
-Total simulated steps:          1,000,000
-
-Average P&L:                    $566.55
-Best P&L:                       $2,120.56
-Worst P&L:                      $87.61
-Profitable sessions:            100 / 100
-
-Average fill rate:              12.95%
-Average max inventory exposure: 100.49
-Worst inventory exposure:       109
-```
-
-These results are specific to the simplified simulated order-flow model and are intended to evaluate the behavior of the implementation rather than represent real-world trading performance.
-
-## Build
-
-Requires a C++17-compatible compiler.
+## Build and run the C++ program
 
 ```bash
 make
-```
-
-Run the simulation:
-
-```bash
 make run
 ```
 
-Clean generated binaries:
+The native executable uses the defaults in `SimulationConfig`. Applications
+can construct that object and pass it to `runSimulation` to configure session
+count, steps, seed, quote size, inventory limit, market-order probability, and
+maximum generated order size.
+
+## Build the Python module
+
+Build the extension with the same interpreter that will run Streamlit:
 
 ```bash
-make clean
+make python-module PYTHON=python
+python -c "import orderbook_cpp; print(orderbook_cpp.__doc__)"
 ```
 
-## Project Structure
+If the virtual environment is not activated, use its interpreter explicitly:
 
-```text
-.
-├── main.cpp
-├── order.hpp
-├── order.cpp
-├── trade.hpp
-├── trade.cpp
-├── orderbook.hpp
-├── orderbook.cpp
-├── simulator.hpp
-├── simulator.cpp
-├── marketmaker.hpp
-├── marketmaker.cpp
-├── Makefile
-└── README.md
+```bash
+make python-module PYTHON=.venv/bin/python
 ```
 
-## Technologies
+The build creates an ABI-tagged module such as
+`orderbook_cpp.cpython-313-darwin.so` in the project directory.
 
-- C++17
-- STL containers (`std::map`, `std::deque`, `std::vector`)
-- Make
+## Run the Streamlit dashboard
+
+From the project directory and the same Python environment used to build the
+extension:
+
+```bash
+python -m streamlit run streamlit_app.py
+```
+
+Alternatively, build and launch in one command:
+
+```bash
+make streamlit PYTHON=python
+```
+
+Use the sidebar to configure the simulation and click **Run Simulation**. The
+dashboard calls the compiled C++ `run_simulation` function and displays the
+aggregate metrics and per-session charts.
+
+## Tests
+
+```bash
+make test
+```
+
+The native test executable covers price-time priority, partial fills,
+cancellation, market/limit behavior, configuration validation, aggregate
+volume accounting, and deterministic seeded runs.
+
+For a quick Python smoke test after building the module:
+
+```bash
+python - <<'PY'
+import orderbook_cpp
+
+config = orderbook_cpp.SimulationConfig()
+config.number_of_sessions = 2
+config.steps_per_session = 100
+result = orderbook_cpp.run_simulation(config)
+print(result.average_pnl, len(result.session_results))
+PY
+```
+
+## Configuration and results
+
+The C++ API groups inputs into `SimulationConfig`, `MarketMakerConfig`, and
+`SimulatorConfig`. `runSimulation` returns a `SimulationResult` containing:
+
+- average, best, and worst P&L
+- profitable-session count
+- average fill rate
+- average and worst maximum inventory exposure
+- total bought and sold volume
+- one `SessionResult` per session for charts and further analysis
+
+Run `make clean` to remove native executables and compiled Python modules.
