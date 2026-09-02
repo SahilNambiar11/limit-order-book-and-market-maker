@@ -132,6 +132,9 @@ double OrderBook::bestAsk() const {
     return asks.begin()->first;
 }
 
+const std::vector<Trade>& OrderBook::getTrades() const {
+    return trades;
+}
 
 void OrderBook::printBook() const {
     std::cout << "\n========== ORDER BOOK ==========\n\n";

@@ -14,6 +14,7 @@ public:
     bool cancelOrder(int orderID);
     double bestBid() const;
     double bestAsk() const;
+    const std::vector<Trade>& getTrades() const;
 
     void printBook() const;
     void printTrades() const;
