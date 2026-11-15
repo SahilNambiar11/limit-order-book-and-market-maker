@@ -162,6 +162,26 @@ double OrderBook::bestAskExcluding(
     return 0.0;
 }
 
+int OrderBook::getOrderRemainingQuantity(int orderID) const {
+    for (const auto& priceLevel : bids) {
+        for (const Order& order : priceLevel.second) {
+            if (order.id == orderID) {
+                return order.quantity;
+            }
+        }
+    }
+
+    for (const auto& priceLevel : asks) {
+        for (const Order& order : priceLevel.second) {
+            if (order.id == orderID) {
+                return order.quantity;
+            }
+        }
+    }
+
+    return 0;
+}
+
 const std::vector<Trade>& OrderBook::getTrades() const {
     return trades;
 }

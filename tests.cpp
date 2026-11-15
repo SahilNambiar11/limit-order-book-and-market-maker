@@ -52,6 +52,25 @@ void testLimitPriceProtectionAndMarketSell() {
     assert(nearlyEqual(book.getTrades()[0].price, 100.0));
 }
 
+void testTargetedCancellationPreservesPriority() {
+    OrderBook book;
+    book.addOrder(Order(1, Side::Buy, OrderType::Limit, 100.0, 5, 1));
+    book.addOrder(Order(2, Side::Buy, OrderType::Limit, 100.0, 5, 2));
+    book.addOrder(Order(3, Side::Buy, OrderType::Limit, 99.0, 5, 3));
+
+    assert(book.cancelOrder(1));
+    assert(book.getOrderRemainingQuantity(1) == 0);
+    assert(book.getOrderRemainingQuantity(2) == 5);
+    assert(book.getOrderRemainingQuantity(3) == 5);
+
+    book.addOrder(Order(4, Side::Sell, OrderType::Market, 0.0, 6, 4));
+    assert(book.getTrades().size() == 2);
+    assert(book.getTrades()[0].buyOrderId == 2);
+    assert(book.getTrades()[0].quantity == 5);
+    assert(book.getTrades()[1].buyOrderId == 3);
+    assert(book.getTrades()[1].quantity == 1);
+}
+
 void testFinalStepFillIsProcessedExactlyOnce() {
     OrderBook book;
     addTwoSidedMarket(book);
@@ -69,19 +88,19 @@ void testFinalStepFillIsProcessedExactlyOnce() {
     assert(maker.getTotalBought() == 0);
     assert(maker.getTotalSold() == 4);
     assert(maker.getInventory() == -4);
-    assert(nearlyEqual(maker.getCash(), 403.96));
-    assert(nearlyEqual(maker.getPnL(), 3.96));
+    assert(nearlyEqual(maker.getCash(), 400.08));
+    assert(nearlyEqual(maker.getPnL(), 0.08));
     assert(maker.isLedgerReconciled());
 
     maker.finalize(100.0);
     assert(maker.getTotalSold() == 4);
-    assert(nearlyEqual(maker.getCash(), 403.96));
+    assert(nearlyEqual(maker.getCash(), 400.08));
 }
 
 void testFillGeneratedByFinalQuoteIsProcessed() {
     OrderBook book;
-    book.addOrder(Order(1, Side::Buy, OrderType::Limit, 100.0, 1, 0));
-    book.addOrder(Order(2, Side::Sell, OrderType::Limit, 100.01, 100, 0));
+    book.addOrder(Order(1, Side::Buy, OrderType::Limit, 100.01, 1, 0));
+    book.addOrder(Order(2, Side::Sell, OrderType::Limit, 100.05, 100, 0));
 
     MarketMakerConfig config;
     config.quoteSize = 10;
@@ -93,7 +112,7 @@ void testFillGeneratedByFinalQuoteIsProcessed() {
     maker.update(1, 10, 11);
 
     book.addOrder(Order(12, Side::Sell, OrderType::Market, 0.0, 7, 2));
-    book.addOrder(Order(13, Side::Buy, OrderType::Limit, 100.0, 100, 2));
+    book.addOrder(Order(13, Side::Buy, OrderType::Limit, 100.01, 100, 2));
     maker.update(2, 14, 15);
 
     assert(maker.getTotalBought() == 6);
@@ -160,6 +179,49 @@ void testLatencyPreservesInventoryLimit() {
     assert(maker.isLedgerReconciled());
 }
 
+void testReferenceAnchoredQuoteDistance() {
+    OrderBook book;
+    MarketMakerConfig config;
+    config.fixedSpread = 1.0;
+    config.maximumQuoteDistanceFromReference = 0.03;
+    config.transactionFeePerUnit = 0.0;
+    config.terminalLiquidationEnabled = false;
+    MarketMaker maker(book, config);
+    maker.setReferencePrice(100.0);
+    maker.update(1, 10, 11);
+    maker.update(2, 12, 13);
+
+    assert(nearlyEqual(book.bestBid(), 99.97));
+    assert(nearlyEqual(book.bestAsk(), 100.03));
+    assert(maker.getAverageQuoteDistanceFromReference() <= 0.03 + 1e-8);
+    assert(maker.getMaximumQuotedSpread() <= 0.06 + 1e-8);
+}
+
+void testExternalOrderExpirationAndReplenishment() {
+    OrderBook book;
+    MarketMakerConfig makerConfig;
+    makerConfig.terminalLiquidationEnabled = false;
+    MarketMaker maker(book, makerConfig);
+
+    SimulatorConfig simulatorConfig;
+    simulatorConfig.randomSeed = 7;
+    simulatorConfig.marketOrderProbability = 1.0;
+    simulatorConfig.informedOrderProbability = 0.0;
+    simulatorConfig.referencePriceVolatility = 0.0;
+    simulatorConfig.initialBookDepth = 2;
+    simulatorConfig.initialLevelQuantity = 10;
+    simulatorConfig.externalOrderMaximumLifetimeSteps = 1;
+    simulatorConfig.externalOrderMaximumDistance = 0.02;
+    Simulator simulator(book, maker, simulatorConfig);
+    simulator.run(10);
+
+    assert(simulator.getExternalOrdersCanceled() > 0);
+    assert(simulator.getExternalOrdersReplenished() > 0);
+    assert(simulator.getAverageExternalOrderLifetime() <= 1.0);
+    assert(maker.isLedgerReconciled());
+    assert(maker.getMaxAbsInventory() <= makerConfig.maximumInventory);
+}
+
 void testReferenceValuationOnOneSidedBook() {
     OrderBook book;
     addTwoSidedMarket(book);
@@ -207,10 +269,10 @@ void testFeesAndTerminalLiquidation() {
     assert(maker.getTerminalLiquidationQuantity() == 5);
     assert(nearlyEqual(maker.getTradingFees(), 0.20));
     assert(nearlyEqual(maker.getTerminalLiquidationCosts(), 0.50));
-    assert(nearlyEqual(maker.getRealizedPnL(), 4.25));
+    assert(nearlyEqual(maker.getRealizedPnL(), -0.60));
     assert(nearlyEqual(maker.getUnrealizedPnL(), 0.0));
-    assert(nearlyEqual(maker.getPnL(), 4.25));
-    assert(nearlyEqual(maker.getCash(), 4.25));
+    assert(nearlyEqual(maker.getPnL(), -0.60));
+    assert(nearlyEqual(maker.getCash(), -0.60));
     assert(maker.isLedgerReconciled());
 }
 
@@ -253,6 +315,14 @@ void testStructuredSimulationIsDeterministicAndReconciled() {
     assert(first.totalBoughtVolume == second.totalBoughtVolume);
     assert(first.totalSoldVolume == second.totalSoldVolume);
     assert(first.allSessionsReconciled);
+    assert(nearlyEqual(
+        first.averageQuotedSpread,
+        second.averageQuotedSpread
+    ));
+    assert(first.totalExternalOrdersCanceled ==
+        second.totalExternalOrdersCanceled);
+    assert(first.totalExternalOrdersReplenished ==
+        second.totalExternalOrdersReplenished);
 
     std::int64_t boughtVolume = 0;
     std::int64_t soldVolume = 0;
@@ -273,6 +343,30 @@ void testStructuredSimulationIsDeterministicAndReconciled() {
     }
     assert(boughtVolume == first.totalBoughtVolume);
     assert(soldVolume == first.totalSoldVolume);
+}
+
+void testStrongTrendsRemainBoundedAndReconciled() {
+    for (const double trend : {0.009, -0.009}) {
+        SimulationConfig config;
+        config.numberOfSessions = 4;
+        config.stepsPerSession = 1000;
+        config.simulator.referencePriceTrend = trend;
+        config.simulator.referencePriceVolatility = 0.02;
+        config.simulator.marketOrderProbability = 0.37;
+
+        const SimulationResult result = runSimulation(config);
+        assert(result.allSessionsReconciled);
+        assert(result.worstInventoryExposure <=
+            config.marketMaker.maximumInventory);
+        assert(result.maximumQuotedSpread <=
+            config.marketMaker.fixedSpread + 1e-8);
+        assert(result.averageMakerQuoteDistance <=
+            config.marketMaker.maximumQuoteDistanceFromReference + 1e-8);
+        assert(result.averageBookMidpointDeviation <=
+            config.marketMaker.maximumQuoteDistanceFromReference + 1e-8);
+        assert(result.totalExternalOrdersCanceled > 0);
+        assert(result.totalExternalOrdersReplenished > 0);
+    }
 }
 
 void testStrategyComparisonUsesMatchingSeeds() {
@@ -317,6 +411,28 @@ void testInvalidConfigurationIsRejected() {
         threw = true;
     }
     assert(threw);
+
+    config.marketMaker.transactionFeePerUnit = 0.001;
+    config.marketMaker.maximumQuoteDistanceFromReference = 0.0;
+    threw = false;
+    try {
+        (void)runSimulation(config);
+    }
+    catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
+
+    config.marketMaker.maximumQuoteDistanceFromReference = 0.10;
+    config.simulator.externalOrderMaximumLifetimeSteps = -1;
+    threw = false;
+    try {
+        (void)runSimulation(config);
+    }
+    catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
 }
 
 }  // namespace
@@ -324,14 +440,18 @@ void testInvalidConfigurationIsRejected() {
 int main() {
     testPriceTimePriorityPartialFillsAndCancellation();
     testLimitPriceProtectionAndMarketSell();
+    testTargetedCancellationPreservesPriority();
     testFinalStepFillIsProcessedExactlyOnce();
     testFillGeneratedByFinalQuoteIsProcessed();
     testHardInventoryLimitAcrossConsecutiveAndTwoSidedFills();
     testLatencyPreservesInventoryLimit();
+    testReferenceAnchoredQuoteDistance();
+    testExternalOrderExpirationAndReplenishment();
     testReferenceValuationOnOneSidedBook();
     testFeesAndTerminalLiquidation();
     testEmptyBookHasValidIndependentMark();
     testStructuredSimulationIsDeterministicAndReconciled();
+    testStrongTrendsRemainBoundedAndReconciled();
     testStrategyComparisonUsesMatchingSeeds();
     testInvalidConfigurationIsRejected();
     std::cout << "All tests passed.\n";

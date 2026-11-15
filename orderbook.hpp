@@ -16,6 +16,7 @@ public:
     double bestAsk() const;
     double bestBidExcluding(int firstOrderID, int secondOrderID) const;
     double bestAskExcluding(int firstOrderID, int secondOrderID) const;
+    int getOrderRemainingQuantity(int orderID) const;
     const std::vector<Trade>& getTrades() const;
 
     void printBook() const;

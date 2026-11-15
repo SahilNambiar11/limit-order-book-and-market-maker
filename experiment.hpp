@@ -34,6 +34,13 @@ struct SessionResult {
     double terminalReferencePrice;
     double endingEquity;
     bool ledgerReconciled;
+    double averageQuotedSpread;
+    double maximumQuotedSpread;
+    double averageMakerQuoteDistance;
+    double averageBookMidpointDeviation;
+    int externalOrdersCanceled;
+    double averageExternalOrderLifetime;
+    int externalOrdersReplenished;
 };
 
 struct SimulationResult {
@@ -56,6 +63,13 @@ struct SimulationResult {
     double totalTradingFees;
     double totalTerminalLiquidationCosts;
     bool allSessionsReconciled;
+    double averageQuotedSpread;
+    double maximumQuotedSpread;
+    double averageMakerQuoteDistance;
+    double averageBookMidpointDeviation;
+    std::int64_t totalExternalOrdersCanceled;
+    double averageExternalOrderLifetime;
+    std::int64_t totalExternalOrdersReplenished;
 
     std::int64_t totalBoughtVolume;
     std::int64_t totalSoldVolume;

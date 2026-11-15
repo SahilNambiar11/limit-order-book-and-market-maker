@@ -43,6 +43,13 @@ void validateConfig(const SimulationConfig& config) {
         config.marketMaker.fixedSpread <= 0.0) {
         throw std::invalid_argument("fixedSpread must be greater than zero");
     }
+    if (!std::isfinite(
+            config.marketMaker.maximumQuoteDistanceFromReference
+        ) || config.marketMaker.maximumQuoteDistanceFromReference < 0.01) {
+        throw std::invalid_argument(
+            "maximumQuoteDistanceFromReference must be at least 0.01"
+        );
+    }
     if (!std::isfinite(config.simulator.marketOrderProbability) ||
         config.simulator.marketOrderProbability < 0.0 ||
         config.simulator.marketOrderProbability > 1.0) {
@@ -79,6 +86,17 @@ void validateConfig(const SimulationConfig& config) {
             "initialLevelQuantity must be greater than zero"
         );
     }
+    if (config.simulator.externalOrderMaximumLifetimeSteps < 0) {
+        throw std::invalid_argument(
+            "externalOrderMaximumLifetimeSteps must not be negative"
+        );
+    }
+    if (!std::isfinite(config.simulator.externalOrderMaximumDistance) ||
+        config.simulator.externalOrderMaximumDistance < 0.0) {
+        throw std::invalid_argument(
+            "externalOrderMaximumDistance must not be negative"
+        );
+    }
 }
 
 double median(std::vector<double> values) {
@@ -110,6 +128,10 @@ SimulationResult runSimulation(const SimulationConfig& config) {
     double totalFillRate = 0.0;
     double totalMaximumInventoryExposure = 0.0;
     double totalMaximumDrawdown = 0.0;
+    double totalAverageQuotedSpread = 0.0;
+    double totalAverageMakerQuoteDistance = 0.0;
+    double totalAverageBookMidpointDeviation = 0.0;
+    double totalAverageExternalOrderLifetime = 0.0;
     std::vector<double> pnlValues;
     pnlValues.reserve(config.numberOfSessions);
 
@@ -141,7 +163,14 @@ SimulationResult runSimulation(const SimulationConfig& config) {
             marketMaker.getMaximumDrawdown(),
             simulator.getReferencePrice(),
             marketMaker.getCash() + marketMaker.getInventoryValue(),
-            marketMaker.isLedgerReconciled()
+            marketMaker.isLedgerReconciled(),
+            marketMaker.getAverageQuotedSpread(),
+            marketMaker.getMaximumQuotedSpread(),
+            marketMaker.getAverageQuoteDistanceFromReference(),
+            marketMaker.getAverageBookMidpointDeviation(),
+            simulator.getExternalOrdersCanceled(),
+            simulator.getAverageExternalOrderLifetime(),
+            simulator.getExternalOrdersReplenished()
         };
 
         result.sessionResults.push_back(session);
@@ -150,6 +179,13 @@ SimulationResult runSimulation(const SimulationConfig& config) {
         totalFillRate += session.fillRate;
         totalMaximumInventoryExposure += session.maximumInventoryExposure;
         totalMaximumDrawdown += session.maximumDrawdown;
+        totalAverageQuotedSpread += session.averageQuotedSpread;
+        totalAverageMakerQuoteDistance +=
+            session.averageMakerQuoteDistance;
+        totalAverageBookMidpointDeviation +=
+            session.averageBookMidpointDeviation;
+        totalAverageExternalOrderLifetime +=
+            session.averageExternalOrderLifetime;
         result.totalBoughtVolume += session.boughtVolume;
         result.totalSoldVolume += session.soldVolume;
         result.totalTradingFees += session.tradingFees;
@@ -157,6 +193,14 @@ SimulationResult runSimulation(const SimulationConfig& config) {
             session.terminalLiquidationCosts;
         result.allSessionsReconciled =
             result.allSessionsReconciled && session.ledgerReconciled;
+        result.maximumQuotedSpread = std::max(
+            result.maximumQuotedSpread,
+            session.maximumQuotedSpread
+        );
+        result.totalExternalOrdersCanceled +=
+            session.externalOrdersCanceled;
+        result.totalExternalOrdersReplenished +=
+            session.externalOrdersReplenished;
 
         result.bestPnL = std::max(result.bestPnL, session.pnl);
         result.worstPnL = std::min(result.worstPnL, session.pnl);
@@ -177,6 +221,14 @@ SimulationResult runSimulation(const SimulationConfig& config) {
     result.averageMaximumInventoryExposure =
         totalMaximumInventoryExposure / sessionCount;
     result.averageMaximumDrawdown = totalMaximumDrawdown / sessionCount;
+    result.averageQuotedSpread =
+        totalAverageQuotedSpread / sessionCount;
+    result.averageMakerQuoteDistance =
+        totalAverageMakerQuoteDistance / sessionCount;
+    result.averageBookMidpointDeviation =
+        totalAverageBookMidpointDeviation / sessionCount;
+    result.averageExternalOrderLifetime =
+        totalAverageExternalOrderLifetime / sessionCount;
     result.profitableSessionPercentage =
         result.profitableSessions / sessionCount;
 

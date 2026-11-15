@@ -15,6 +15,7 @@ struct MarketMakerConfig {
     bool inventoryControlEnabled = true;
     bool fixedSpreadEnabled = false;
     double fixedSpread = 0.04;
+    double maximumQuoteDistanceFromReference = 0.10;
 };
 
 class MarketMaker {
@@ -45,6 +46,10 @@ public:
     double getTerminalLiquidationCosts() const;
     int getTerminalLiquidationQuantity() const;
     double getMaximumDrawdown() const;
+    double getAverageQuotedSpread() const;
+    double getMaximumQuotedSpread() const;
+    double getAverageQuoteDistanceFromReference() const;
+    double getAverageBookMidpointDeviation() const;
     bool isLedgerReconciled() const;
 
     double getFillRate() const;
@@ -66,6 +71,8 @@ private:
 
     int bidOrderID;
     int askOrderID;
+    double bidOrderPrice;
+    double askOrderPrice;
 
     int quoteSize;
     int maxInventory;
@@ -74,8 +81,8 @@ private:
     bool terminalLiquidationEnabled;
     double terminalLiquidationCostPerUnit;
     bool inventoryControlEnabled;
-    bool fixedSpreadEnabled;
     double fixedSpread;
+    double maximumQuoteDistanceFromReference;
 
     std::size_t lastProcessedTrade;
     double referencePrice;
@@ -89,6 +96,13 @@ private:
     double terminalLiquidationCashFlow;
     double peakEquity;
     double maximumDrawdown;
+    double quotedSpreadTotal;
+    long long quotedSpreadSamples;
+    double maximumQuotedSpread;
+    double quoteDistanceTotal;
+    long long quoteDistanceSamples;
+    double bookMidpointDeviationTotal;
+    long long bookMidpointDeviationSamples;
 
     std::unordered_set<int> bidOrderIDs;
     std::unordered_set<int> askOrderIDs;
@@ -106,6 +120,7 @@ private:
 
     void processTrades();
     void cancelOldQuotes();
+    void cancelQuotesOutsideReferenceBand();
     void scheduleQuotes(long long currentTime, int bidID, int askID);
     void activatePendingQuotes(long long currentTime);
     void placeQuotes(
@@ -117,6 +132,7 @@ private:
     );
     void recordFill(Side side, double price, int quantity, bool liquidation);
     void updatePosition(Side side, double price, int quantity);
+    void recordActiveQuoteDistances();
     void updateRiskMetrics();
 };
 

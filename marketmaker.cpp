@@ -18,6 +18,8 @@ MarketMaker::MarketMaker(
       maxAbsInventory(0),
       bidOrderID(-1),
       askOrderID(-1),
+      bidOrderPrice(0.0),
+      askOrderPrice(0.0),
       quoteSize(config.quoteSize),
       maxInventory(config.maximumInventory),
       transactionFeePerUnit(config.transactionFeePerUnit),
@@ -26,9 +28,13 @@ MarketMaker::MarketMaker(
       terminalLiquidationCostPerUnit(
           config.terminalLiquidationCostPerUnit
       ),
-      inventoryControlEnabled(config.inventoryControlEnabled),
-      fixedSpreadEnabled(config.fixedSpreadEnabled),
+      inventoryControlEnabled(
+          config.inventoryControlEnabled && !config.fixedSpreadEnabled
+      ),
       fixedSpread(config.fixedSpread),
+      maximumQuoteDistanceFromReference(
+          config.maximumQuoteDistanceFromReference
+      ),
       lastProcessedTrade(0),
       referencePrice(100.0),
       averageEntryPrice(0.0),
@@ -40,7 +46,14 @@ MarketMaker::MarketMaker(
       grossTradingCashFlow(0.0),
       terminalLiquidationCashFlow(0.0),
       peakEquity(0.0),
-      maximumDrawdown(0.0) {
+      maximumDrawdown(0.0),
+      quotedSpreadTotal(0.0),
+      quotedSpreadSamples(0),
+      maximumQuotedSpread(0.0),
+      quoteDistanceTotal(0.0),
+      quoteDistanceSamples(0),
+      bookMidpointDeviationTotal(0.0),
+      bookMidpointDeviationSamples(0) {
 }
 
 void MarketMaker::setReferencePrice(double price) {
@@ -55,6 +68,8 @@ void MarketMaker::beginStep(long long currentTime) {
 
 void MarketMaker::update(long long currentTime, int bidID, int askID) {
     processTrades();
+    recordActiveQuoteDistances();
+    cancelQuotesOutsideReferenceBand();
     scheduleQuotes(currentTime, bidID, askID);
     processTrades();
     updateRiskMetrics();
@@ -194,11 +209,24 @@ void MarketMaker::cancelOldQuotes() {
     if (bidOrderID != -1) {
         book.cancelOrder(bidOrderID);
         bidOrderID = -1;
+        bidOrderPrice = 0.0;
     }
 
     if (askOrderID != -1) {
         book.cancelOrder(askOrderID);
         askOrderID = -1;
+        askOrderPrice = 0.0;
+    }
+}
+
+void MarketMaker::cancelQuotesOutsideReferenceBand() {
+    if ((bidOrderID != -1 &&
+         std::abs(bidOrderPrice - referencePrice) >
+             maximumQuoteDistanceFromReference) ||
+        (askOrderID != -1 &&
+         std::abs(askOrderPrice - referencePrice) >
+             maximumQuoteDistanceFromReference)) {
+        cancelOldQuotes();
     }
 }
 
@@ -211,27 +239,12 @@ void MarketMaker::scheduleQuotes(
         return;
     }
 
-    const double externalBestBid =
-        book.bestBidExcluding(bidOrderID, askOrderID);
-    const double externalBestAsk =
-        book.bestAskExcluding(bidOrderID, askOrderID);
-
-    double bidPrice = referencePrice - fixedSpread / 2.0;
-    double askPrice = referencePrice + fixedSpread / 2.0;
-
-    if (!fixedSpreadEnabled &&
-        externalBestBid != 0.0 && externalBestAsk != 0.0) {
-        const double spread = externalBestAsk - externalBestBid;
-
-        if (spread > 0.02) {
-            bidPrice = externalBestBid + 0.01;
-            askPrice = externalBestAsk - 0.01;
-        }
-        else {
-            bidPrice = externalBestBid;
-            askPrice = externalBestAsk;
-        }
-    }
+    const double halfSpread = std::min(
+        fixedSpread / 2.0,
+        maximumQuoteDistanceFromReference
+    );
+    double bidPrice = referencePrice - halfSpread;
+    double askPrice = referencePrice + halfSpread;
 
     if (inventoryControlEnabled) {
         if (inventory > maxInventory / 2) {
@@ -251,6 +264,16 @@ void MarketMaker::scheduleQuotes(
     askPrice = std::max(
         0.01,
         std::round(askPrice * 100.0) / 100.0
+    );
+    bidPrice = std::clamp(
+        bidPrice,
+        std::max(0.01, referencePrice - maximumQuoteDistanceFromReference),
+        std::max(0.01, referencePrice - 0.01)
+    );
+    askPrice = std::clamp(
+        askPrice,
+        referencePrice + 0.01,
+        referencePrice + maximumQuoteDistanceFromReference
     );
 
     if (quoteLatencySteps == 0) {
@@ -281,6 +304,14 @@ void MarketMaker::activatePendingQuotes(long long currentTime) {
 
     const PendingQuotes quotes = pendingQuotes;
     pendingQuotes.active = false;
+
+    if (std::abs(quotes.bidPrice - referencePrice) >
+            maximumQuoteDistanceFromReference ||
+        std::abs(quotes.askPrice - referencePrice) >
+            maximumQuoteDistanceFromReference) {
+        return;
+    }
+
     cancelOldQuotes();
     placeQuotes(
         currentTime,
@@ -307,8 +338,19 @@ void MarketMaker::placeQuotes(
         std::max(0, maxInventory + inventory)
     );
 
+    if (bidQuantity > 0 && askQuantity > 0) {
+        const double quotedSpread = askPrice - bidPrice;
+        quotedSpreadTotal += quotedSpread;
+        ++quotedSpreadSamples;
+        maximumQuotedSpread = std::max(
+            maximumQuotedSpread,
+            quotedSpread
+        );
+    }
+
     if (bidQuantity > 0) {
         bidOrderID = bidID;
+        bidOrderPrice = bidPrice;
         bidOrderIDs.insert(bidOrderID);
         book.addOrder(Order(
             bidOrderID,
@@ -323,6 +365,7 @@ void MarketMaker::placeQuotes(
 
     if (askQuantity > 0) {
         askOrderID = askID;
+        askOrderPrice = askPrice;
         askOrderIDs.insert(askOrderID);
         book.addOrder(Order(
             askOrderID,
@@ -336,10 +379,31 @@ void MarketMaker::placeQuotes(
     }
 }
 
+void MarketMaker::recordActiveQuoteDistances() {
+    if (bidOrderID != -1 &&
+        book.getOrderRemainingQuantity(bidOrderID) > 0) {
+        quoteDistanceTotal += std::abs(referencePrice - bidOrderPrice);
+        ++quoteDistanceSamples;
+    }
+    if (askOrderID != -1 &&
+        book.getOrderRemainingQuantity(askOrderID) > 0) {
+        quoteDistanceTotal += std::abs(askOrderPrice - referencePrice);
+        ++quoteDistanceSamples;
+    }
+}
+
 void MarketMaker::updateRiskMetrics() {
     const double equity = getPnL();
     peakEquity = std::max(peakEquity, equity);
     maximumDrawdown = std::max(maximumDrawdown, peakEquity - equity);
+
+    const double bestBid = book.bestBid();
+    const double bestAsk = book.bestAsk();
+    if (bestBid != 0.0 && bestAsk != 0.0) {
+        const double midpoint = (bestBid + bestAsk) / 2.0;
+        bookMidpointDeviationTotal += std::abs(midpoint - referencePrice);
+        ++bookMidpointDeviationSamples;
+    }
 }
 
 int MarketMaker::getInventory() const {
@@ -403,6 +467,28 @@ int MarketMaker::getTerminalLiquidationQuantity() const {
 
 double MarketMaker::getMaximumDrawdown() const {
     return maximumDrawdown;
+}
+
+double MarketMaker::getAverageQuotedSpread() const {
+    return quotedSpreadSamples == 0
+        ? 0.0
+        : quotedSpreadTotal / quotedSpreadSamples;
+}
+
+double MarketMaker::getMaximumQuotedSpread() const {
+    return maximumQuotedSpread;
+}
+
+double MarketMaker::getAverageQuoteDistanceFromReference() const {
+    return quoteDistanceSamples == 0
+        ? 0.0
+        : quoteDistanceTotal / quoteDistanceSamples;
+}
+
+double MarketMaker::getAverageBookMidpointDeviation() const {
+    return bookMidpointDeviationSamples == 0
+        ? 0.0
+        : bookMidpointDeviationTotal / bookMidpointDeviationSamples;
 }
 
 bool MarketMaker::isLedgerReconciled() const {

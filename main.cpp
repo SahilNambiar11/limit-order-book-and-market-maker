@@ -36,6 +36,20 @@ int main() {
               << result.totalTerminalLiquidationCosts << '\n';
     std::cout << "All ledgers reconciled: "
               << (result.allSessionsReconciled ? "yes" : "no") << '\n';
+    std::cout << "Average quoted spread: "
+              << result.averageQuotedSpread << '\n';
+    std::cout << "Maximum quoted spread: "
+              << result.maximumQuotedSpread << '\n';
+    std::cout << "Average maker quote distance: "
+              << result.averageMakerQuoteDistance << '\n';
+    std::cout << "Average book midpoint deviation: "
+              << result.averageBookMidpointDeviation << '\n';
+    std::cout << "External orders canceled: "
+              << result.totalExternalOrdersCanceled << '\n';
+    std::cout << "Average external order lifetime: "
+              << result.averageExternalOrderLifetime << '\n';
+    std::cout << "External orders replenished: "
+              << result.totalExternalOrdersReplenished << '\n';
 
     std::cout << "\nTotal MM bought volume: "
               << result.totalBoughtVolume << '\n';

@@ -39,7 +39,11 @@ PYBIND11_MODULE(orderbook_cpp, module) {
             "fixed_spread_enabled",
             &MarketMakerConfig::fixedSpreadEnabled
         )
-        .def_readwrite("fixed_spread", &MarketMakerConfig::fixedSpread);
+        .def_readwrite("fixed_spread", &MarketMakerConfig::fixedSpread)
+        .def_readwrite(
+            "maximum_quote_distance_from_reference",
+            &MarketMakerConfig::maximumQuoteDistanceFromReference
+        );
 
     py::class_<SimulatorConfig>(module, "SimulatorConfig")
         .def(py::init<>())
@@ -71,6 +75,18 @@ PYBIND11_MODULE(orderbook_cpp, module) {
         .def_readwrite(
             "initial_level_quantity",
             &SimulatorConfig::initialLevelQuantity
+        )
+        .def_readwrite(
+            "external_order_maximum_lifetime_steps",
+            &SimulatorConfig::externalOrderMaximumLifetimeSteps
+        )
+        .def_readwrite(
+            "external_order_maximum_distance",
+            &SimulatorConfig::externalOrderMaximumDistance
+        )
+        .def_readwrite(
+            "external_liquidity_replenishment_enabled",
+            &SimulatorConfig::externalLiquidityReplenishmentEnabled
         );
 
     py::class_<SimulationConfig>(module, "SimulationConfig")
@@ -123,6 +139,34 @@ PYBIND11_MODULE(orderbook_cpp, module) {
         .def_readonly(
             "ledger_reconciled",
             &SessionResult::ledgerReconciled
+        )
+        .def_readonly(
+            "average_quoted_spread",
+            &SessionResult::averageQuotedSpread
+        )
+        .def_readonly(
+            "maximum_quoted_spread",
+            &SessionResult::maximumQuotedSpread
+        )
+        .def_readonly(
+            "average_maker_quote_distance",
+            &SessionResult::averageMakerQuoteDistance
+        )
+        .def_readonly(
+            "average_book_midpoint_deviation",
+            &SessionResult::averageBookMidpointDeviation
+        )
+        .def_readonly(
+            "external_orders_canceled",
+            &SessionResult::externalOrdersCanceled
+        )
+        .def_readonly(
+            "average_external_order_lifetime",
+            &SessionResult::averageExternalOrderLifetime
+        )
+        .def_readonly(
+            "external_orders_replenished",
+            &SessionResult::externalOrdersReplenished
         );
 
     py::class_<SimulationResult>(module, "SimulationResult")
@@ -181,6 +225,34 @@ PYBIND11_MODULE(orderbook_cpp, module) {
         .def_readonly(
             "all_sessions_reconciled",
             &SimulationResult::allSessionsReconciled
+        )
+        .def_readonly(
+            "average_quoted_spread",
+            &SimulationResult::averageQuotedSpread
+        )
+        .def_readonly(
+            "maximum_quoted_spread",
+            &SimulationResult::maximumQuotedSpread
+        )
+        .def_readonly(
+            "average_maker_quote_distance",
+            &SimulationResult::averageMakerQuoteDistance
+        )
+        .def_readonly(
+            "average_book_midpoint_deviation",
+            &SimulationResult::averageBookMidpointDeviation
+        )
+        .def_readonly(
+            "total_external_orders_canceled",
+            &SimulationResult::totalExternalOrdersCanceled
+        )
+        .def_readonly(
+            "average_external_order_lifetime",
+            &SimulationResult::averageExternalOrderLifetime
+        )
+        .def_readonly(
+            "total_external_orders_replenished",
+            &SimulationResult::totalExternalOrdersReplenished
         )
         .def_readonly(
             "total_bought_volume",

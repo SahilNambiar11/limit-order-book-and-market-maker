@@ -164,6 +164,35 @@ with st.sidebar:
             step=0.01,
             format="%.2f",
         )
+        maximum_quote_distance = st.number_input(
+            "Maximum maker quote distance from reference ($)",
+            min_value=0.01,
+            max_value=10.0,
+            value=0.10,
+            step=0.01,
+            format="%.2f",
+        )
+        external_order_maximum_lifetime = st.number_input(
+            "External order maximum lifetime (steps)",
+            min_value=0,
+            max_value=1_000_000,
+            value=250,
+            step=10,
+            help="Set to zero to disable lifetime-based expiration.",
+        )
+        external_order_maximum_distance = st.number_input(
+            "External order maximum reference distance ($)",
+            min_value=0.0,
+            max_value=100.0,
+            value=0.25,
+            step=0.01,
+            format="%.2f",
+            help="Set to zero to disable distance-based cancellation.",
+        )
+        replenish_external_liquidity = st.checkbox(
+            "Replenish external liquidity",
+            value=True,
+        )
 
         submitted = st.form_submit_button(
             "Run Simulation",
@@ -190,6 +219,9 @@ if submitted:
         terminal_liquidation_cost_per_unit
     )
     market_maker_config.fixed_spread = float(fixed_spread)
+    market_maker_config.maximum_quote_distance_from_reference = float(
+        maximum_quote_distance
+    )
     config.market_maker = market_maker_config
 
     simulator_config = orderbook_cpp.SimulatorConfig()
@@ -206,6 +238,15 @@ if submitted:
     simulator_config.reference_price_trend = float(reference_price_trend)
     simulator_config.informed_order_probability = float(
         informed_order_probability
+    )
+    simulator_config.external_order_maximum_lifetime_steps = int(
+        external_order_maximum_lifetime
+    )
+    simulator_config.external_order_maximum_distance = float(
+        external_order_maximum_distance
+    )
+    simulator_config.external_liquidity_replenishment_enabled = bool(
+        replenish_external_liquidity
     )
     config.simulator = simulator_config
 
@@ -286,6 +327,39 @@ st.caption(
     "and configured terminal liquidation costs."
 )
 
+st.subheader("Liquidity and quote diagnostics")
+diagnostic_row_one = st.columns(4)
+diagnostic_row_one[0].metric(
+    "Average quoted spread",
+    f"${result.average_quoted_spread:,.4f}",
+)
+diagnostic_row_one[1].metric(
+    "Maximum quoted spread",
+    f"${result.maximum_quoted_spread:,.4f}",
+)
+diagnostic_row_one[2].metric(
+    "Average maker quote distance",
+    f"${result.average_maker_quote_distance:,.4f}",
+)
+diagnostic_row_one[3].metric(
+    "Average midpoint deviation",
+    f"${result.average_book_midpoint_deviation:,.4f}",
+)
+
+diagnostic_row_two = st.columns(3)
+diagnostic_row_two[0].metric(
+    "External orders canceled",
+    f"{result.total_external_orders_canceled:,}",
+)
+diagnostic_row_two[1].metric(
+    "Average external order lifetime",
+    f"{result.average_external_order_lifetime:,.2f} steps",
+)
+diagnostic_row_two[2].metric(
+    "External orders replenished",
+    f"{result.total_external_orders_replenished:,}",
+)
+
 session_data = pd.DataFrame(
     [
         {
@@ -304,6 +378,21 @@ session_data = pd.DataFrame(
             "Maximum drawdown": session.maximum_drawdown,
             "Terminal reference price": session.terminal_reference_price,
             "Ledger reconciled": session.ledger_reconciled,
+            "Average quoted spread": session.average_quoted_spread,
+            "Maximum quoted spread": session.maximum_quoted_spread,
+            "Average maker quote distance": (
+                session.average_maker_quote_distance
+            ),
+            "Average midpoint deviation": (
+                session.average_book_midpoint_deviation
+            ),
+            "External orders canceled": session.external_orders_canceled,
+            "Average external order lifetime": (
+                session.average_external_order_lifetime
+            ),
+            "External orders replenished": (
+                session.external_orders_replenished
+            ),
         }
         for session in result.session_results
     ]
@@ -372,6 +461,13 @@ if comparison is not None:
                     comparison.inventory_aware
                     .average_maximum_inventory_exposure
                 ),
+                "Average quoted spread": (
+                    comparison.inventory_aware.average_quoted_spread
+                ),
+                "Average midpoint deviation": (
+                    comparison.inventory_aware
+                    .average_book_midpoint_deviation
+                ),
             },
             {
                 "Strategy": "Fixed-spread baseline",
@@ -390,6 +486,12 @@ if comparison is not None:
                 "Average max inventory": (
                     comparison.fixed_spread.average_maximum_inventory_exposure
                 ),
+                "Average quoted spread": (
+                    comparison.fixed_spread.average_quoted_spread
+                ),
+                "Average midpoint deviation": (
+                    comparison.fixed_spread.average_book_midpoint_deviation
+                ),
             },
         ]
     )
@@ -403,6 +505,8 @@ if comparison is not None:
                 "Average max drawdown": "${:,.2f}",
                 "Fill rate": "{:.2%}",
                 "Average max inventory": "{:,.2f}",
+                "Average quoted spread": "${:,.4f}",
+                "Average midpoint deviation": "${:,.4f}",
             }
         ),
         width="stretch",
@@ -420,6 +524,11 @@ with st.expander("Per-session results"):
                 "Liquidation costs": "${:,.2f}",
                 "Maximum drawdown": "${:,.2f}",
                 "Terminal reference price": "${:,.2f}",
+                "Average quoted spread": "${:,.4f}",
+                "Maximum quoted spread": "${:,.4f}",
+                "Average maker quote distance": "${:,.4f}",
+                "Average midpoint deviation": "${:,.4f}",
+                "Average external order lifetime": "{:,.2f}",
                 "Fill rate": "{:.2%}",
             }
         ),

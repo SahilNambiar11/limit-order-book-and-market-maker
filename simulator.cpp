@@ -21,6 +21,17 @@ Simulator::Simulator(
       informedOrderProbability(config.informedOrderProbability),
       initialBookDepth(config.initialBookDepth),
       initialLevelQuantity(config.initialLevelQuantity),
+      externalOrderMaximumLifetimeSteps(
+          config.externalOrderMaximumLifetimeSteps
+      ),
+      externalOrderMaximumDistance(config.externalOrderMaximumDistance),
+      externalLiquidityReplenishmentEnabled(
+          config.externalLiquidityReplenishmentEnabled
+      ),
+      externalOrdersCanceled(0),
+      externalOrderLifetimeTotal(0),
+      externalOrderLifetimeSamples(0),
+      externalOrdersReplenished(0),
       rng(config.randomSeed) {
 }
 
@@ -32,25 +43,150 @@ double Simulator::getReferencePrice() const {
     return referencePrice;
 }
 
+int Simulator::getExternalOrdersCanceled() const {
+    return externalOrdersCanceled;
+}
+
+double Simulator::getAverageExternalOrderLifetime() const {
+    return externalOrderLifetimeSamples == 0
+        ? 0.0
+        : static_cast<double>(externalOrderLifetimeTotal) /
+            externalOrderLifetimeSamples;
+}
+
+int Simulator::getExternalOrdersReplenished() const {
+    return externalOrdersReplenished;
+}
+
 void Simulator::seedInitialBook() {
-    for (int level = 1; level <= initialBookDepth; ++level) {
-        const double offset = level * 0.01;
-        book.addOrder(Order(
-            getNextOrderID(),
+    replenishExternalLiquidity(false);
+}
+
+void Simulator::addExternalLimitOrder(
+    Side side,
+    double price,
+    int quantity,
+    bool countAsReplenishment
+) {
+    const int orderID = getNextOrderID();
+    book.addOrder(Order(
+        orderID,
+        side,
+        OrderType::Limit,
+        price,
+        quantity,
+        currentTime
+    ));
+
+    if (book.getOrderRemainingQuantity(orderID) > 0) {
+        externalOrders.push_back(ExternalOrderState{
+            orderID,
+            side,
+            price,
+            currentTime
+        });
+    }
+    else {
+        ++externalOrderLifetimeSamples;
+    }
+
+    if (countAsReplenishment) {
+        ++externalOrdersReplenished;
+    }
+}
+
+void Simulator::replenishExternalLiquidity(bool countAsReplenishment) {
+    if (!externalLiquidityReplenishmentEnabled && countAsReplenishment) {
+        return;
+    }
+
+    int activeBids = 0;
+    int activeAsks = 0;
+    for (const ExternalOrderState& order : externalOrders) {
+        if (book.getOrderRemainingQuantity(order.orderID) == 0) {
+            continue;
+        }
+        if (order.side == Side::Buy) {
+            ++activeBids;
+        }
+        else {
+            ++activeAsks;
+        }
+    }
+
+    for (int level = activeBids + 1;
+         level <= initialBookDepth;
+         ++level) {
+        const double price = std::max(
+            0.01,
+            std::round((referencePrice - level * 0.01) * 100.0) / 100.0
+        );
+        addExternalLimitOrder(
             Side::Buy,
-            OrderType::Limit,
-            referencePrice - offset,
+            price,
             initialLevelQuantity,
-            currentTime
-        ));
-        book.addOrder(Order(
-            getNextOrderID(),
+            countAsReplenishment
+        );
+    }
+
+    for (int level = activeAsks + 1;
+         level <= initialBookDepth;
+         ++level) {
+        const double price = std::round(
+            (referencePrice + level * 0.01) * 100.0
+        ) / 100.0;
+        addExternalLimitOrder(
             Side::Sell,
-            OrderType::Limit,
-            referencePrice + offset,
+            price,
             initialLevelQuantity,
-            currentTime
-        ));
+            countAsReplenishment
+        );
+    }
+}
+
+void Simulator::maintainExternalLiquidity() {
+    auto order = externalOrders.begin();
+    while (order != externalOrders.end()) {
+        const int remainingQuantity =
+            book.getOrderRemainingQuantity(order->orderID);
+        const long long lifetime = currentTime - order->submissionTime;
+
+        if (remainingQuantity == 0) {
+            externalOrderLifetimeTotal += lifetime;
+            ++externalOrderLifetimeSamples;
+            order = externalOrders.erase(order);
+            continue;
+        }
+
+        const bool expired = externalOrderMaximumLifetimeSteps > 0 &&
+            lifetime >= externalOrderMaximumLifetimeSteps;
+        const bool tooFar = externalOrderMaximumDistance > 0.0 &&
+            std::abs(order->price - referencePrice) >
+                externalOrderMaximumDistance;
+        const bool wrongSide = order->side == Side::Buy
+            ? order->price >= referencePrice
+            : order->price <= referencePrice;
+
+        if (expired || tooFar || wrongSide) {
+            if (book.cancelOrder(order->orderID)) {
+                ++externalOrdersCanceled;
+            }
+            externalOrderLifetimeTotal += lifetime;
+            ++externalOrderLifetimeSamples;
+            order = externalOrders.erase(order);
+            continue;
+        }
+
+        ++order;
+    }
+
+    replenishExternalLiquidity(true);
+}
+
+void Simulator::recordRemainingExternalOrderLifetimes() {
+    for (const ExternalOrderState& order : externalOrders) {
+        externalOrderLifetimeTotal += currentTime - order.submissionTime;
+        ++externalOrderLifetimeSamples;
     }
 }
 
@@ -75,9 +211,21 @@ void Simulator::run(int steps) {
             referencePrice - previousReferencePrice;
 
         marketMaker.setReferencePrice(referencePrice);
+        maintainExternalLiquidity();
         marketMaker.beginStep(currentTime);
 
-        book.addOrder(generateOrder(priceChange));
+        const Order externalOrder = generateOrder(priceChange);
+        if (externalOrder.type == OrderType::Limit) {
+            addExternalLimitOrder(
+                externalOrder.side,
+                externalOrder.price,
+                externalOrder.quantity,
+                false
+            );
+        }
+        else {
+            book.addOrder(externalOrder);
+        }
 
         const int bidID = getNextOrderID();
         const int askID = getNextOrderID();
@@ -85,6 +233,7 @@ void Simulator::run(int steps) {
     }
 
     marketMaker.finalize(referencePrice);
+    recordRemainingExternalOrderLifetimes();
 }
 
 Order Simulator::generateOrder(double priceChange) {

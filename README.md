@@ -16,6 +16,8 @@ matching or market-making logic is duplicated in Python.
 - Independent-reference mark-to-market and realized/unrealized P&L
 - Hard inventory limits that include outstanding quote exposure
 - Configurable informed flow, volatility, trend, fees, latency, and liquidation
+- External-order expiration, reference-distance cancellation, and replenishment
+- Reference-anchored maker quotes with a configurable distance limit
 - Reproducible inventory-aware versus fixed-spread comparisons
 - Aggregate and per-session risk metrics exposed to Python and Streamlit
 
@@ -45,7 +47,8 @@ The native executable uses the defaults in `SimulationConfig`. Applications
 can construct that object and pass it to `runSimulation` to configure session
 count, steps, seed, quote size, inventory limit, market-order probability,
 maximum generated order size, reference-price process, informed flow, fees,
-quote latency, and terminal liquidation.
+quote latency, terminal liquidation, external-order lifetime and distance, and
+the maker's maximum quote distance from the independent reference price.
 
 ## Build the Python module
 
@@ -120,6 +123,8 @@ The C++ API groups inputs into `SimulationConfig`, `MarketMakerConfig`, and
 - average and worst maximum inventory exposure
 - average maximum drawdown
 - trading fees, liquidation costs, and ledger-reconciliation status
+- maker spread, quote-distance, midpoint-deviation, and external-liquidity
+  diagnostics
 - total bought and sold volume
 - one `SessionResult` per session for charts and further analysis
 
@@ -136,8 +141,25 @@ Quote latency delays activation without giving the market maker future price
 information. Remaining inventory is either valued at the independent terminal
 reference price or liquidated there with configured per-unit fees and costs.
 
-The model remains a research simulation: it does not model exchange-specific
-queue mechanics, variable depth, network jitter, impact, or calibration to
+External limit orders are owned and tracked by the simulator. An active order
+is canceled when it reaches its configured maximum lifetime, moves beyond its
+configured reference-price distance, or ends up on the wrong side of the
+reference price. The simulator replenishes a configurable number of external
+bid and ask levels around the current reference price. Filled orders retain
+normal price-time priority until they execute, and maintenance never targets
+market-maker order IDs.
+
+Market-maker quotes are centered on the reference price using the configured
+spread and inventory skew. Quotes are rounded to the one-cent tick and bounded
+by `maximumQuoteDistanceFromReference`. With latency, a submitted quote keeps
+its original price; if it is outside the distance limit when activation is due,
+it is discarded rather than repriced using later information. An active quote
+can still be adversely selected by the next price move; after that order-flow
+event, quotes outside the reference band are canceled before replacement.
+
+The model remains a research simulation: replenishment depth is synthetic,
+order expiration is rule-based, and it does not model exchange-specific queue
+mechanics, network jitter, market impact, competing makers, or calibration to
 historical data. Dashboard results are simulated outcomes, not claims about
 live-trading performance.
 

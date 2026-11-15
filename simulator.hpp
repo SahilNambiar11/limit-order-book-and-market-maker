@@ -3,6 +3,7 @@
 
 #include "orderbook.hpp"
 #include <random>
+#include <vector>
 
 class MarketMaker;
 
@@ -15,6 +16,9 @@ struct SimulatorConfig {
     double informedOrderProbability = 0.15;
     int initialBookDepth = 5;
     int initialLevelQuantity = 100;
+    int externalOrderMaximumLifetimeSteps = 250;
+    double externalOrderMaximumDistance = 0.25;
+    bool externalLiquidityReplenishmentEnabled = true;
 };
 
 class Simulator {
@@ -28,6 +32,9 @@ public:
     void run(int steps);
     int getNextOrderID();
     double getReferencePrice() const;
+    int getExternalOrdersCanceled() const;
+    double getAverageExternalOrderLifetime() const;
+    int getExternalOrdersReplenished() const;
 
 private:
     OrderBook& book;
@@ -43,10 +50,35 @@ private:
     double informedOrderProbability;
     int initialBookDepth;
     int initialLevelQuantity;
+    int externalOrderMaximumLifetimeSteps;
+    double externalOrderMaximumDistance;
+    bool externalLiquidityReplenishmentEnabled;
+
+    struct ExternalOrderState {
+        int orderID;
+        Side side;
+        double price;
+        long long submissionTime;
+    };
+
+    std::vector<ExternalOrderState> externalOrders;
+    int externalOrdersCanceled;
+    long long externalOrderLifetimeTotal;
+    long long externalOrderLifetimeSamples;
+    int externalOrdersReplenished;
 
     std::mt19937 rng;
 
     void seedInitialBook();
+    void maintainExternalLiquidity();
+    void replenishExternalLiquidity(bool countAsReplenishment);
+    void addExternalLimitOrder(
+        Side side,
+        double price,
+        int quantity,
+        bool countAsReplenishment
+    );
+    void recordRemainingExternalOrderLifetimes();
     Order generateOrder(double priceChange);
 };
 
