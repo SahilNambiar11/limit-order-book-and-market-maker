@@ -3,8 +3,10 @@
 #include "orderbook.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 
@@ -21,10 +23,38 @@ void validateConfig(const SimulationConfig& config) {
     if (config.marketMaker.maximumInventory <= 0) {
         throw std::invalid_argument("maximumInventory must be greater than zero");
     }
-    if (config.simulator.marketOrderProbability < 0.0 ||
+    if (!std::isfinite(config.marketMaker.transactionFeePerUnit) ||
+        config.marketMaker.transactionFeePerUnit < 0.0) {
+        throw std::invalid_argument(
+            "transactionFeePerUnit must not be negative"
+        );
+    }
+    if (config.marketMaker.quoteLatencySteps < 0) {
+        throw std::invalid_argument("quoteLatencySteps must not be negative");
+    }
+    if (!std::isfinite(
+            config.marketMaker.terminalLiquidationCostPerUnit
+        ) || config.marketMaker.terminalLiquidationCostPerUnit < 0.0) {
+        throw std::invalid_argument(
+            "terminalLiquidationCostPerUnit must not be negative"
+        );
+    }
+    if (!std::isfinite(config.marketMaker.fixedSpread) ||
+        config.marketMaker.fixedSpread <= 0.0) {
+        throw std::invalid_argument("fixedSpread must be greater than zero");
+    }
+    if (!std::isfinite(config.simulator.marketOrderProbability) ||
+        config.simulator.marketOrderProbability < 0.0 ||
         config.simulator.marketOrderProbability > 1.0) {
         throw std::invalid_argument(
             "marketOrderProbability must be between zero and one"
+        );
+    }
+    if (!std::isfinite(config.simulator.informedOrderProbability) ||
+        config.simulator.informedOrderProbability < 0.0 ||
+        config.simulator.informedOrderProbability > 1.0) {
+        throw std::invalid_argument(
+            "informedOrderProbability must be between zero and one"
         );
     }
     if (config.simulator.maximumGeneratedOrderQuantity <= 0) {
@@ -32,6 +62,32 @@ void validateConfig(const SimulationConfig& config) {
             "maximumGeneratedOrderQuantity must be greater than zero"
         );
     }
+    if (!std::isfinite(config.simulator.referencePriceVolatility) ||
+        config.simulator.referencePriceVolatility < 0.0) {
+        throw std::invalid_argument(
+            "referencePriceVolatility must not be negative"
+        );
+    }
+    if (!std::isfinite(config.simulator.referencePriceTrend)) {
+        throw std::invalid_argument("referencePriceTrend must be finite");
+    }
+    if (config.simulator.initialBookDepth < 0) {
+        throw std::invalid_argument("initialBookDepth must not be negative");
+    }
+    if (config.simulator.initialLevelQuantity <= 0) {
+        throw std::invalid_argument(
+            "initialLevelQuantity must be greater than zero"
+        );
+    }
+}
+
+double median(std::vector<double> values) {
+    std::sort(values.begin(), values.end());
+    const std::size_t middle = values.size() / 2;
+    if (values.size() % 2 == 0) {
+        return (values[middle - 1] + values[middle]) / 2.0;
+    }
+    return values[middle];
 }
 
 }  // namespace
@@ -47,11 +103,15 @@ SimulationResult runSimulation(const SimulationConfig& config) {
         config.stepsPerSession;
     result.bestPnL = -std::numeric_limits<double>::infinity();
     result.worstPnL = std::numeric_limits<double>::infinity();
+    result.allSessionsReconciled = true;
     result.sessionResults.reserve(config.numberOfSessions);
 
     double totalPnL = 0.0;
     double totalFillRate = 0.0;
     double totalMaximumInventoryExposure = 0.0;
+    double totalMaximumDrawdown = 0.0;
+    std::vector<double> pnlValues;
+    pnlValues.reserve(config.numberOfSessions);
 
     for (int i = 0; i < config.numberOfSessions; ++i) {
         OrderBook book;
@@ -70,15 +130,33 @@ SimulationResult runSimulation(const SimulationConfig& config) {
             marketMaker.getMaxAbsInventory(),
             marketMaker.getInventory(),
             marketMaker.getTotalBought(),
-            marketMaker.getTotalSold()
+            marketMaker.getTotalSold(),
+            marketMaker.getCash(),
+            marketMaker.getInventoryValue(),
+            marketMaker.getRealizedPnL(),
+            marketMaker.getUnrealizedPnL(),
+            marketMaker.getTradingFees(),
+            marketMaker.getTerminalLiquidationCosts(),
+            marketMaker.getTerminalLiquidationQuantity(),
+            marketMaker.getMaximumDrawdown(),
+            simulator.getReferencePrice(),
+            marketMaker.getCash() + marketMaker.getInventoryValue(),
+            marketMaker.isLedgerReconciled()
         };
 
         result.sessionResults.push_back(session);
+        pnlValues.push_back(session.pnl);
         totalPnL += session.pnl;
         totalFillRate += session.fillRate;
         totalMaximumInventoryExposure += session.maximumInventoryExposure;
+        totalMaximumDrawdown += session.maximumDrawdown;
         result.totalBoughtVolume += session.boughtVolume;
         result.totalSoldVolume += session.soldVolume;
+        result.totalTradingFees += session.tradingFees;
+        result.totalTerminalLiquidationCosts +=
+            session.terminalLiquidationCosts;
+        result.allSessionsReconciled =
+            result.allSessionsReconciled && session.ledgerReconciled;
 
         result.bestPnL = std::max(result.bestPnL, session.pnl);
         result.worstPnL = std::min(result.worstPnL, session.pnl);
@@ -94,9 +172,36 @@ SimulationResult runSimulation(const SimulationConfig& config) {
 
     const double sessionCount = static_cast<double>(config.numberOfSessions);
     result.averagePnL = totalPnL / sessionCount;
+    result.medianPnL = median(pnlValues);
     result.averageFillRate = totalFillRate / sessionCount;
     result.averageMaximumInventoryExposure =
         totalMaximumInventoryExposure / sessionCount;
+    result.averageMaximumDrawdown = totalMaximumDrawdown / sessionCount;
+    result.profitableSessionPercentage =
+        result.profitableSessions / sessionCount;
+
+    double squaredDeviationTotal = 0.0;
+    for (const double pnl : pnlValues) {
+        const double deviation = pnl - result.averagePnL;
+        squaredDeviationTotal += deviation * deviation;
+    }
+    result.pnlStandardDeviation =
+        std::sqrt(squaredDeviationTotal / sessionCount);
 
     return result;
+}
+
+StrategyComparisonResult compareStrategies(const SimulationConfig& config) {
+    SimulationConfig inventoryAwareConfig = config;
+    inventoryAwareConfig.marketMaker.inventoryControlEnabled = true;
+    inventoryAwareConfig.marketMaker.fixedSpreadEnabled = false;
+
+    SimulationConfig fixedSpreadConfig = config;
+    fixedSpreadConfig.marketMaker.inventoryControlEnabled = false;
+    fixedSpreadConfig.marketMaker.fixedSpreadEnabled = true;
+
+    return StrategyComparisonResult{
+        runSimulation(inventoryAwareConfig),
+        runSimulation(fixedSpreadConfig)
+    };
 }

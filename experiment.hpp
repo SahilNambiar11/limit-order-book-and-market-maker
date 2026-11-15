@@ -23,6 +23,17 @@ struct SessionResult {
     int endingInventory;
     std::int64_t boughtVolume;
     std::int64_t soldVolume;
+    double cash;
+    double inventoryValue;
+    double realizedPnL;
+    double unrealizedPnL;
+    double tradingFees;
+    double terminalLiquidationCosts;
+    int terminalLiquidationQuantity;
+    double maximumDrawdown;
+    double terminalReferencePrice;
+    double endingEquity;
+    bool ledgerReconciled;
 };
 
 struct SimulationResult {
@@ -31,13 +42,20 @@ struct SimulationResult {
     std::int64_t totalSimulatedSteps;
 
     double averagePnL;
+    double medianPnL;
+    double pnlStandardDeviation;
     double bestPnL;
     double worstPnL;
     int profitableSessions;
+    double profitableSessionPercentage;
 
     double averageFillRate;
     double averageMaximumInventoryExposure;
     int worstInventoryExposure;
+    double averageMaximumDrawdown;
+    double totalTradingFees;
+    double totalTerminalLiquidationCosts;
+    bool allSessionsReconciled;
 
     std::int64_t totalBoughtVolume;
     std::int64_t totalSoldVolume;
@@ -45,6 +63,12 @@ struct SimulationResult {
     std::vector<SessionResult> sessionResults;
 };
 
+struct StrategyComparisonResult {
+    SimulationResult inventoryAware;
+    SimulationResult fixedSpread;
+};
+
 SimulationResult runSimulation(const SimulationConfig& config);
+StrategyComparisonResult compareStrategies(const SimulationConfig& config);
 
 #endif

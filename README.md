@@ -13,10 +13,11 @@ matching or market-making logic is duplicated in Python.
 - FIFO time priority within each price level
 - Order cancellation
 - Inventory-aware two-sided market-maker quotes
-- Mark-to-market P&L and fill-rate tracking
-- Configurable, reproducible multi-session experiments
-- Aggregate and per-session metrics exposed to Python
-- Streamlit metrics, P&L distribution, inventory chart, and result table
+- Independent-reference mark-to-market and realized/unrealized P&L
+- Hard inventory limits that include outstanding quote exposure
+- Configurable informed flow, volatility, trend, fees, latency, and liquidation
+- Reproducible inventory-aware versus fixed-spread comparisons
+- Aggregate and per-session risk metrics exposed to Python and Streamlit
 
 ## Prerequisites
 
@@ -42,8 +43,9 @@ make run
 
 The native executable uses the defaults in `SimulationConfig`. Applications
 can construct that object and pass it to `runSimulation` to configure session
-count, steps, seed, quote size, inventory limit, market-order probability, and
-maximum generated order size.
+count, steps, seed, quote size, inventory limit, market-order probability,
+maximum generated order size, reference-price process, informed flow, fees,
+quote latency, and terminal liquidation.
 
 ## Build the Python module
 
@@ -89,8 +91,9 @@ make test
 ```
 
 The native test executable covers price-time priority, partial fills,
-cancellation, market/limit behavior, configuration validation, aggregate
-volume accounting, and deterministic seeded runs.
+cancellation, final-event settlement, ledger and cash reconciliation, hard
+inventory limits, latency, independent valuation, fees, terminal liquidation,
+configuration validation, and deterministic stressed runs.
 
 For a quick Python smoke test after building the module:
 
@@ -111,11 +114,31 @@ PY
 The C++ API groups inputs into `SimulationConfig`, `MarketMakerConfig`, and
 `SimulatorConfig`. `runSimulation` returns a `SimulationResult` containing:
 
-- average, best, and worst P&L
-- profitable-session count
+- mean, median, standard deviation, best, and worst P&L
+- profitable-session count and percentage
 - average fill rate
 - average and worst maximum inventory exposure
+- average maximum drawdown
+- trading fees, liquidation costs, and ledger-reconciliation status
 - total bought and sold volume
 - one `SessionResult` per session for charts and further analysis
+
+`compareStrategies` runs the inventory-aware strategy and a fixed-spread
+baseline with the same session seeds and order-flow configuration.
+
+## Simulation assumptions
+
+The reference price follows a configurable arithmetic process with a per-step
+trend and normally distributed innovation. Uninformed orders choose sides
+randomly. Informed orders trade in the direction of the latest exogenous price
+move, so they can adversely select quotes that were active before that move.
+Quote latency delays activation without giving the market maker future price
+information. Remaining inventory is either valued at the independent terminal
+reference price or liquidated there with configured per-unit fees and costs.
+
+The model remains a research simulation: it does not model exchange-specific
+queue mechanics, variable depth, network jitter, impact, or calibration to
+historical data. Dashboard results are simulated outcomes, not claims about
+live-trading performance.
 
 Run `make clean` to remove native executables and compiled Python modules.

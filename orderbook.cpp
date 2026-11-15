@@ -132,6 +132,36 @@ double OrderBook::bestAsk() const {
     return asks.begin()->first;
 }
 
+double OrderBook::bestBidExcluding(
+    int firstOrderID,
+    int secondOrderID
+) const {
+    for (const auto& priceLevel : bids) {
+        for (const Order& order : priceLevel.second) {
+            if (order.id != firstOrderID && order.id != secondOrderID) {
+                return priceLevel.first;
+            }
+        }
+    }
+
+    return 0.0;
+}
+
+double OrderBook::bestAskExcluding(
+    int firstOrderID,
+    int secondOrderID
+) const {
+    for (const auto& priceLevel : asks) {
+        for (const Order& order : priceLevel.second) {
+            if (order.id != firstOrderID && order.id != secondOrderID) {
+                return priceLevel.first;
+            }
+        }
+    }
+
+    return 0.0;
+}
+
 const std::vector<Trade>& OrderBook::getTrades() const {
     return trades;
 }

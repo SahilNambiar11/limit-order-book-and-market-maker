@@ -13,11 +13,15 @@ int main() {
               << result.totalSimulatedSteps << '\n';
 
     std::cout << "\nAverage P&L: " << result.averagePnL << '\n';
+    std::cout << "Median P&L: " << result.medianPnL << '\n';
+    std::cout << "P&L standard deviation: "
+              << result.pnlStandardDeviation << '\n';
     std::cout << "Best P&L: " << result.bestPnL << '\n';
     std::cout << "Worst P&L: " << result.worstPnL << '\n';
     std::cout << "Profitable sessions: "
               << result.profitableSessions << " / "
-              << result.numberOfSessions << '\n';
+              << result.numberOfSessions << " ("
+              << result.profitableSessionPercentage * 100.0 << "%)\n";
 
     std::cout << "\nAverage fill rate: "
               << result.averageFillRate * 100.0 << "%\n";
@@ -25,6 +29,13 @@ int main() {
               << result.averageMaximumInventoryExposure << '\n';
     std::cout << "Worst inventory exposure: "
               << result.worstInventoryExposure << '\n';
+    std::cout << "Average maximum drawdown: "
+              << result.averageMaximumDrawdown << '\n';
+    std::cout << "Trading fees: " << result.totalTradingFees << '\n';
+    std::cout << "Terminal liquidation costs: "
+              << result.totalTerminalLiquidationCosts << '\n';
+    std::cout << "All ledgers reconciled: "
+              << (result.allSessionsReconciled ? "yes" : "no") << '\n';
 
     std::cout << "\nTotal MM bought volume: "
               << result.totalBoughtVolume << '\n';

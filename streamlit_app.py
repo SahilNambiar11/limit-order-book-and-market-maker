@@ -44,7 +44,8 @@ except ImportError:
 st.title("Limit Order Book Market Maker")
 st.caption(
     "Configure and run the native C++ matching engine, order-flow simulator, "
-    "and inventory-aware market maker."
+    "and inventory-aware market maker. Results are simulated and are not "
+    "evidence of actual trading performance."
 )
 
 with st.sidebar:
@@ -100,6 +101,69 @@ with st.sidebar:
             value=50,
             step=1,
         )
+        reference_price_volatility = st.number_input(
+            "Reference-price volatility per step ($)",
+            min_value=0.0,
+            max_value=10.0,
+            value=0.02,
+            step=0.01,
+            format="%.3f",
+        )
+        reference_price_trend = st.number_input(
+            "Reference-price trend per step ($)",
+            min_value=-1.0,
+            max_value=1.0,
+            value=0.0,
+            step=0.001,
+            format="%.3f",
+        )
+        informed_order_probability = st.slider(
+            "Informed-order probability",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.15,
+            step=0.01,
+            format="%.2f",
+        )
+        transaction_fee_per_unit = st.number_input(
+            "Transaction fee per unit ($)",
+            min_value=0.0,
+            max_value=10.0,
+            value=0.001,
+            step=0.001,
+            format="%.4f",
+        )
+        quote_latency_steps = st.number_input(
+            "Quote latency (steps)",
+            min_value=0,
+            max_value=1_000,
+            value=0,
+            step=1,
+        )
+        terminal_liquidation_enabled = st.checkbox(
+            "Liquidate terminal inventory",
+            value=True,
+        )
+        terminal_liquidation_cost_per_unit = st.number_input(
+            "Terminal liquidation cost per unit ($)",
+            min_value=0.0,
+            max_value=10.0,
+            value=0.01,
+            step=0.01,
+            format="%.3f",
+        )
+        compare_fixed_spread = st.checkbox(
+            "Compare fixed-spread baseline",
+            value=False,
+        )
+        fixed_spread = st.number_input(
+            "Baseline fixed spread ($)",
+            min_value=0.01,
+            max_value=10.0,
+            value=0.04,
+            step=0.01,
+            format="%.2f",
+        )
 
         submitted = st.form_submit_button(
             "Run Simulation",
@@ -115,6 +179,17 @@ if submitted:
     market_maker_config = orderbook_cpp.MarketMakerConfig()
     market_maker_config.quote_size = int(quote_size)
     market_maker_config.maximum_inventory = int(maximum_inventory)
+    market_maker_config.transaction_fee_per_unit = float(
+        transaction_fee_per_unit
+    )
+    market_maker_config.quote_latency_steps = int(quote_latency_steps)
+    market_maker_config.terminal_liquidation_enabled = bool(
+        terminal_liquidation_enabled
+    )
+    market_maker_config.terminal_liquidation_cost_per_unit = float(
+        terminal_liquidation_cost_per_unit
+    )
+    market_maker_config.fixed_spread = float(fixed_spread)
     config.market_maker = market_maker_config
 
     simulator_config = orderbook_cpp.SimulatorConfig()
@@ -125,13 +200,28 @@ if submitted:
     simulator_config.maximum_generated_order_quantity = int(
         maximum_order_quantity
     )
+    simulator_config.reference_price_volatility = float(
+        reference_price_volatility
+    )
+    simulator_config.reference_price_trend = float(reference_price_trend)
+    simulator_config.informed_order_probability = float(
+        informed_order_probability
+    )
     config.simulator = simulator_config
 
     try:
         with st.spinner("Running native C++ simulation..."):
-            st.session_state["simulation_result"] = (
-                orderbook_cpp.run_simulation(config)
-            )
+            if compare_fixed_spread:
+                comparison = orderbook_cpp.compare_strategies(config)
+                st.session_state["simulation_result"] = (
+                    comparison.inventory_aware
+                )
+                st.session_state["strategy_comparison"] = comparison
+            else:
+                st.session_state["simulation_result"] = (
+                    orderbook_cpp.run_simulation(config)
+                )
+                st.session_state.pop("strategy_comparison", None)
     except (RuntimeError, ValueError) as error:
         st.error(f"Simulation failed: {error}")
 
@@ -145,14 +235,17 @@ st.subheader("Aggregate metrics")
 
 metrics_row_one = st.columns(4)
 metrics_row_one[0].metric("Average P&L", f"${result.average_pnl:,.2f}")
-metrics_row_one[1].metric("Best P&L", f"${result.best_pnl:,.2f}")
-metrics_row_one[2].metric("Worst P&L", f"${result.worst_pnl:,.2f}")
+metrics_row_one[1].metric("Median P&L", f"${result.median_pnl:,.2f}")
+metrics_row_one[2].metric(
+    "P&L standard deviation",
+    f"${result.pnl_standard_deviation:,.2f}",
+)
 metrics_row_one[3].metric(
     "Profitable sessions",
-    f"{result.profitable_sessions:,} / {result.number_of_sessions:,}",
+    f"{result.profitable_session_percentage:.1%}",
 )
 
-metrics_row_two = st.columns(3)
+metrics_row_two = st.columns(4)
 metrics_row_two[0].metric(
     "Average fill rate",
     f"{result.average_fill_rate:.2%}",
@@ -165,19 +258,32 @@ metrics_row_two[2].metric(
     "Worst inventory exposure",
     f"{result.worst_inventory_exposure:,}",
 )
+metrics_row_two[3].metric(
+    "Average maximum drawdown",
+    f"${result.average_maximum_drawdown:,.2f}",
+)
 
-metrics_row_three = st.columns(3)
+metrics_row_three = st.columns(4)
 metrics_row_three[0].metric(
-    "Total bought volume",
-    f"{result.total_bought_volume:,}",
+    "Trading fees",
+    f"${result.total_trading_fees:,.2f}",
 )
 metrics_row_three[1].metric(
-    "Total sold volume",
-    f"{result.total_sold_volume:,}",
+    "Terminal liquidation costs",
+    f"${result.total_terminal_liquidation_costs:,.2f}",
 )
 metrics_row_three[2].metric(
     "Simulated steps",
     f"{result.total_simulated_steps:,}",
+)
+metrics_row_three[3].metric(
+    "Ledger reconciliation",
+    "Passed" if result.all_sessions_reconciled else "Failed",
+)
+
+st.caption(
+    "P&L includes transaction fees, independent-reference mark-to-market, "
+    "and configured terminal liquidation costs."
 )
 
 session_data = pd.DataFrame(
@@ -191,6 +297,13 @@ session_data = pd.DataFrame(
             "Ending inventory": session.ending_inventory,
             "Bought volume": session.bought_volume,
             "Sold volume": session.sold_volume,
+            "Realized P&L": session.realized_pnl,
+            "Unrealized P&L": session.unrealized_pnl,
+            "Trading fees": session.trading_fees,
+            "Liquidation costs": session.terminal_liquidation_costs,
+            "Maximum drawdown": session.maximum_drawdown,
+            "Terminal reference price": session.terminal_reference_price,
+            "Ledger reconciled": session.ledger_reconciled,
         }
         for session in result.session_results
     ]
@@ -213,30 +326,100 @@ with chart_column_one:
     st.altair_chart(pnl_histogram, width="stretch")
 
 with chart_column_two:
-    inventory_chart = (
+    risk_chart = (
         alt.Chart(session_data)
-        .mark_line(point=True, color="#F18F01")
+        .mark_circle(color="#F18F01", size=70)
         .encode(
-            x=alt.X("Session:Q", title="Session"),
-            y=alt.Y(
+            x=alt.X(
                 "Maximum inventory exposure:Q",
                 title="Maximum absolute inventory",
+            ),
+            y=alt.Y(
+                "Maximum drawdown:Q",
+                title="Maximum drawdown",
             ),
             tooltip=[
                 "Session:Q",
                 "Maximum inventory exposure:Q",
+                alt.Tooltip("Maximum drawdown:Q", format=",.2f"),
                 alt.Tooltip("P&L:Q", format=",.2f"),
             ],
         )
-        .properties(title="Inventory exposure by session", height=300)
+        .properties(title="Inventory and drawdown risk", height=300)
     )
-    st.altair_chart(inventory_chart, width="stretch")
+    st.altair_chart(risk_chart, width="stretch")
+
+comparison = st.session_state.get("strategy_comparison")
+if comparison is not None:
+    st.subheader("Strategy comparison")
+    comparison_data = pd.DataFrame(
+        [
+            {
+                "Strategy": "Inventory-aware",
+                "Mean P&L": comparison.inventory_aware.average_pnl,
+                "Median P&L": comparison.inventory_aware.median_pnl,
+                "P&L standard deviation": (
+                    comparison.inventory_aware.pnl_standard_deviation
+                ),
+                "Profitable sessions": (
+                    comparison.inventory_aware.profitable_session_percentage
+                ),
+                "Average max drawdown": (
+                    comparison.inventory_aware.average_maximum_drawdown
+                ),
+                "Fill rate": comparison.inventory_aware.average_fill_rate,
+                "Average max inventory": (
+                    comparison.inventory_aware
+                    .average_maximum_inventory_exposure
+                ),
+            },
+            {
+                "Strategy": "Fixed-spread baseline",
+                "Mean P&L": comparison.fixed_spread.average_pnl,
+                "Median P&L": comparison.fixed_spread.median_pnl,
+                "P&L standard deviation": (
+                    comparison.fixed_spread.pnl_standard_deviation
+                ),
+                "Profitable sessions": (
+                    comparison.fixed_spread.profitable_session_percentage
+                ),
+                "Average max drawdown": (
+                    comparison.fixed_spread.average_maximum_drawdown
+                ),
+                "Fill rate": comparison.fixed_spread.average_fill_rate,
+                "Average max inventory": (
+                    comparison.fixed_spread.average_maximum_inventory_exposure
+                ),
+            },
+        ]
+    )
+    st.dataframe(
+        comparison_data.style.format(
+            {
+                "Mean P&L": "${:,.2f}",
+                "Median P&L": "${:,.2f}",
+                "P&L standard deviation": "${:,.2f}",
+                "Profitable sessions": "{:.1%}",
+                "Average max drawdown": "${:,.2f}",
+                "Fill rate": "{:.2%}",
+                "Average max inventory": "{:,.2f}",
+            }
+        ),
+        width="stretch",
+        hide_index=True,
+    )
 
 with st.expander("Per-session results"):
     st.dataframe(
         session_data.style.format(
             {
                 "P&L": "${:,.2f}",
+                "Realized P&L": "${:,.2f}",
+                "Unrealized P&L": "${:,.2f}",
+                "Trading fees": "${:,.2f}",
+                "Liquidation costs": "${:,.2f}",
+                "Maximum drawdown": "${:,.2f}",
+                "Terminal reference price": "${:,.2f}",
                 "Fill rate": "{:.2%}",
             }
         ),
